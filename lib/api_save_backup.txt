@@ -1,0 +1,85 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+class ApiSave extends StatefulWidget{
+  @override 
+  ApiSaveState createState()=> ApiSaveState();
+}
+class ApiSaveState extends State<ApiSave>{
+  @override 
+
+
+  Future<String> fetchData()async{
+final String url = 'https://my427593.businessbydesign.cloud.sap/sap/bc/srt/scs/sap/managesalesorderin5';
+final username = '_opc1';
+final password = 'Opc@2022#';
+  final credentials = base64Encode(utf8.encode('$username:$password'));
+  String requestBody = ''' 
+  <SOAP-ENV:Envelope   xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"   xmlns:SOAP-ENC="http://schemas.xmlsoap.org/soap/encoding/"   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"   xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+	<SOAP-ENV:Body>
+		<n0:SalesOrderBundleMaintainRequest_sync xmlns:n0="http://sap.com/xi/SAPGlobal20/Global" xmlns:ypj="http://0005837950-one-off.sap.com/YPJHSCV4Y_">
+			<BasicMessageHeader/>
+			<SalesOrder>
+				<DATETIME>2023-03-16T12:00:00.1234567Z</DATETIME>
+				<Name languageCode="EN">APP_OPC</Name>
+				<Item>
+					<ItemProduct>
+						<ProductID>10003845</ProductID>
+					</ItemProduct>
+					<ItemScheduleLine>
+						<Quantity>21</Quantity>
+					</ItemScheduleLine>
+					<ypj:PromotionID></ypj:PromotionID>
+					<ypj:OrgPrice currencyCode="VND">0.00</ypj:OrgPrice>
+					<ypj:GiftItem>false</ypj:GiftItem>
+					<ypj:PurchProductID></ypj:PurchProductID>
+					<ypj:OrgPrice currencyCode="VND">0</ypj:OrgPrice>
+					<ypj:TotalDiscAllocation currencyCode="VND">0</ypj:TotalDiscAllocation>
+
+					<PriceAndTaxCalculationItem>
+						<ItemMainDiscount>
+							<Rate>                         
+								<DecimalValue>1</DecimalValue>
+                               
+							</Rate>
+						</ItemMainDiscount>
+					</PriceAndTaxCalculationItem>
+				</Item>
+				<AccountParty>
+					<PartyID>111007</PartyID>
+				</AccountParty>
+			</SalesOrder>
+		</n0:SalesOrderBundleMaintainRequest_sync>
+	</SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+   ''';
+
+     Map<String, String> headers = {
+    'Content-Type': 'text/xml;charset=UTF-8',
+    'Authorization': 'Basic $credentials',
+    'SOAPAction': 'SalesOrderBundleMaintainRequest_sync', 
+  };
+   final response = await http.post(Uri.parse(url), headers: headers, body: requestBody);
+     if(response.statusCode==200){
+      print(response.statusCode);
+      print(response.body);
+      return response.body;
+     }else{
+       print('Request failed with status: ${response.statusCode}.');
+         throw Exception('Failed to post data.');
+     }
+} 
+  @override 
+void initState(){
+  super.initState();
+  fetchData();
+}
+  Widget build(BuildContext context){
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('API SAVE'),
+      ),
+    );
+  }
+}

@@ -1,0 +1,892 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_typeahead/flutter_typeahead.dart';
+import 'package:http/http.dart' as http;
+import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart';
+import 'package:intl/intl.dart';
+import 'package:opc_app/api_call.dart';
+import 'package:opc_app/json_connect.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class OrderPageDemo extends StatefulWidget {
+  ConnectJsonObject object;
+  OrderPageDemo({Key? key, required this.object}) : super(key: key);
+  @override
+  _OrderPageState createState() => _OrderPageState();
+}
+
+class _OrderPageState extends State<OrderPageDemo> {
+  late final DateTime _currentDate;
+  List<String> textList = [];
+  var filter, skip, top, format, expand, maCbNV;
+
+  bool _isChecked = false;
+  String _text = '';
+
+  final String url2 = "http://118.69.225.144/api/user";
+  final _searchController = TextEditingController();
+  List<Customer> data = [];
+  List<Customer> filteredData = []; // Danh sách khách hàng gốc
+  List<Customer> _allCustomers = []; // Danh sách khách hàng đã lọc
+  Customer? _selectedCustomer;
+  bool _isDoneSelected =
+      false; //isDoneSelected sẽ kiểm tra xem nút kết thúc đã được bấm hay chưa
+  String selectedText =
+      ''; // Tạo biến state để lưu giá trị của _searchController
+  int? selectedIndex;
+  bool _isItemSelected = false;
+  bool _isResultSelected =
+      false; // khởi tạo biến kiểm tra kết quả đã chọn hay chưa
+  int productCount = 1;
+  TextEditingController _businessPartnerNameController =
+      TextEditingController();
+  TextEditingController _internalIDController = TextEditingController();
+  TextEditingController _itemController = TextEditingController();
+  String currentSearchText = '';
+  List<String> selectedProducts = [];
+  bool dataChanged = false;
+  int? selectedProductIndex;
+
+  TextEditingController txtMaDT = TextEditingController();
+  TextEditingController txtDiaChi = TextEditingController();
+  TextEditingController txtTenDT = TextEditingController();
+  void selectProduct(int index) {
+    setState(() {
+      if (selectedProductIndex == index) {
+        selectedProductIndex = null;
+      } else {
+        selectedProductIndex = index;
+      }
+    });
+  }
+  // String SelectedText = ''; //giá trị chọn để xoá
+//Nội dung của hộp thoại là một ListView được xây dựng bằng phương thức ListView.builder.
+//Mỗi mục trong danh sách sẽ là một ListTile chứa tên khách hàng và sẽ trả về khách hàng
+//tương ứng khi được chọn. Khi khách hàng được chọn, hộp thoại sẽ bị đóng lại bằng cách
+//sử dụng phương thức Navigator.of(context).pop(filteredData[index]).
+
+//hàm async để hiển thị danh sách khách hàng trong một hộp thoại (AlertDialog).
+//Hàm này sử dụng phương thức showDialog để hiển thị hộp thoại và trả về một Future của đối tượng khách hàng
+//được chọn.
+  Future<Customer?> _showCustomerList(BuildContext context) async {
+    return showDialog<Customer>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Danh sách khách hàng'),
+          content: Container(
+            width: double.maxFinite,
+            child: ListView.builder(
+              itemCount: filteredData.length,
+              itemBuilder: (BuildContext context, int index) {
+                return ListTile(
+                  title: Text(filteredData[index].businessPartnerName ?? ''),
+                  onTap: () {
+                    Navigator.of(context).pop(filteredData[index]);
+                  },
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void confirmDelete(int index) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Xác nhận xoá'),
+          content: Text('Bạn có chắc muốn xoá dòng này?'),
+          actions: [
+            TextButton(
+              child: Text('Huỷ'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: Text('Đồng ý'),
+              onPressed: () {
+                setState(() {
+                  selectedProducts.removeAt(index);
+                });
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _addTextToList() {
+    String newText = _itemController.text;
+    if (newText.isNotEmpty) {
+      setState(() {
+        textList.add(newText);
+      });
+      _itemController.clear();
+    }
+  }
+
+  Future<bool> _onWillPop() async {
+    if (dataChanged) {
+      return await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Text('Các thông tin vừa nhập chưa được lưu'),
+              content: Text('Bạn có chắc chắn muốn thoát không?'),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: Text('Không'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: Text('Có'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+    }
+    return true;
+  }
+
+  void fetchData() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String maCbNv = prefs.getString('maCbNv')!;
+    maCbNV = maCbNv;
+    print(maCbNv);
+    final String url =
+        "https://my427593.businessbydesign.cloud.sap/sap/byd/odata/cust/v1/khcustomertest/CustomerCurrentEmployeeResponsibleCollection?\$format=json&\$expand=Customer&\$filter=EmployeeID eq " +
+            "'" +
+            maCbNV +
+            "'";
+    final username = "OPCIT";
+    final password = "Welcome2";
+    final credentials = base64Encode(utf8.encode('$username:$password'));
+    final headers = {
+      'Authorization': 'Basic $credentials',
+      'User-Agent': 'MyApp/1.0'
+    };
+    final response =
+        await http.get(Uri.parse(Uri.encodeFull(url)), headers: headers);
+
+    setState(() {
+      if (response.statusCode == 200) {
+        final decodedJson = json.decode(response.body);
+        var results = decodedJson['d']['results'];
+        for (int i = 0; i < results.length; i++) {
+          var customerJson = results[i]['Customer'];
+          data.add(Customer.fromJson(customerJson));
+          filteredData.add(Customer.fromJson(customerJson));
+          _allCustomers.add(Customer.fromJson(customerJson));
+        }
+      } else {
+        throw Exception('Failed to load data');
+      }
+    });
+  }
+
+  void _handleCbTextFieldChanged(String text) {
+    setState(() {
+      _text = text;
+    });
+  }
+
+  void _handleTextFieldChanged(String text) {
+    setState(() {
+      dataChanged = true;
+      textList.add(text);
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    fetchData();
+    txtMaDT.text = this.widget.object.maDt;
+    _currentDate = DateTime.now();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final formattedDate = DateFormat('dd-MM-yyyy').format(_currentDate);
+    final currentTime = DateTime.now();
+    final formattedTime = DateFormat('HH:mm').format(currentTime);
+    final dateController = TextEditingController(text: formattedDate);
+
+    return WillPopScope(
+        onWillPop: _onWillPop,
+        child: Scaffold(
+            appBar: AppBar(
+                backgroundColor: Color.fromARGB(255, 54, 168, 89),
+                title: Container(
+                  child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Đơn đặt hàng OPC',
+                            style: TextStyle(fontSize: 15)),
+                      ]),
+                )),
+            body: SingleChildScrollView(
+                child: Column(children: <Widget>[
+              Container(
+                margin: EdgeInsets.all(10),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      formattedDate,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Padding(padding: EdgeInsets.only(left: 10)),
+                    Expanded(
+                      child: Container(
+                        // color: Colors.red,
+                        //margin: EdgeInsets.all(10),
+                        child: TypeAheadField(
+                          textFieldConfiguration: TextFieldConfiguration(
+                            onChanged: _handleTextFieldChanged,
+                            decoration:
+                                InputDecoration(hintText: 'Chọn mã đối tượng'),
+                            controller: _searchController,
+                          ),
+                          suggestionsCallback: (pattern) async {
+                            // Lấy danh sách các gợi ý dựa trên từ khóa tìm kiếm
+                            return data.where((customer) {
+                              return (customer.businessPartnerName
+                                              ?.toLowerCase() ??
+                                          '')
+                                      .contains(pattern.toLowerCase()) ||
+                                  (customer.internalID?.toLowerCase() ?? '')
+                                      .contains(pattern.toLowerCase());
+                            }).toList();
+                          },
+                          itemBuilder: (context, suggestion) {
+                            // Hiển thị gợi ý trong danh sách
+                            return ListTile(
+                              title: Text(suggestion.businessPartnerName ?? ''),
+                              subtitle: Text(suggestion.internalID ?? ''),
+                            );
+                          },
+                          onSuggestionSelected: (suggestion) {
+                            // Xử lý sự kiện khi người dùng chọn một gợi ý
+                            setState(() {
+                              _selectedCustomer = suggestion;
+                              _searchController.text =
+                                  _selectedCustomer?.businessPartnerName ?? '';
+                              currentSearchText = _selectedCustomer
+                                      ?.businessPartnerName
+                                      ?.toLowerCase() ??
+                                  '';
+                              filteredData = data.where((customer) {
+                                return (customer.businessPartnerName
+                                                ?.toLowerCase() ??
+                                            '')
+                                        .contains(currentSearchText) ||
+                                    (customer.internalID?.toLowerCase() ?? '')
+                                        .contains(currentSearchText);
+                              }).toList();
+                              _isItemSelected = false;
+                              _isResultSelected =
+                                  true; // đánh dấu là đã chọn kết quả
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                    //SizedBox(width: 10),
+                    Visibility(
+                      visible: !_isDoneSelected,
+                      child: Container(
+                        width: 70,
+                        child: Expanded(
+                          child: Container(
+                            // margin: EdgeInsets.only(left: 10),
+                            child: GestureDetector(
+                              onTap: () {
+                                _showCustomerList(context).then((value) {
+                                  setState(() {
+                                    _selectedCustomer = value;
+                                    _searchController.text = _selectedCustomer
+                                            ?.businessPartnerName ??
+                                        '';
+                                    currentSearchText = _selectedCustomer
+                                            ?.businessPartnerName
+                                            ?.toLowerCase() ??
+                                        '';
+                                    filteredData = data.where((customer) {
+                                      return (customer.businessPartnerName
+                                                      ?.toLowerCase() ??
+                                                  '')
+                                              .contains(currentSearchText) ||
+                                          (customer.internalID?.toLowerCase() ??
+                                                  '')
+                                              .contains(currentSearchText);
+                                    }).toList();
+                                  });
+                                });
+                              },
+                              child: Row(
+                                children: [
+                                  Container(
+                                    // color: Colors.black,
+                                    margin: EdgeInsets.only(left: 10),
+                                    width: 50,
+                                    child: Row(children: [
+                                      Icon(Icons.arrow_drop_down),
+                                      //SizedBox(width: 10),
+                                      if (_selectedCustomer != null)
+                                        GestureDetector(
+                                          onTap: () {
+                                            setState(() {
+                                              _selectedCustomer = null;
+                                              _searchController.text = '';
+                                              currentSearchText = '';
+                                              filteredData = data;
+                                              _isDoneSelected = false;
+                                            });
+                                          },
+                                          child: Icon(Icons.close),
+                                        ),
+                                    ]),
+                                  )
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Container(
+              //   child: Text(
+              //     formattedDate,
+              //     style: TextStyle(
+              //       fontSize: 15,
+              //       fontWeight: FontWeight.bold,
+              //     ),
+              //   ),
+              // ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 340,
+                    child: TextField(
+                      onChanged: _handleTextFieldChanged,
+                      decoration: InputDecoration(
+                          hintText: 'Địa chỉ', border: UnderlineInputBorder()),
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 200,
+                    child: TextField(
+                      onChanged: _handleTextFieldChanged,
+                      decoration: InputDecoration(
+                          hintText: 'Nội dung', border: UnderlineInputBorder()),
+                    ),
+                  ),
+                  Container(
+                    width: 140,
+                    child: TextField(
+                      onChanged: _handleTextFieldChanged,
+                      decoration: InputDecoration(
+                          hintText: 'Diễn giải',
+                          border: UnderlineInputBorder()),
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  Container(
+                    margin: EdgeInsets.only(top: 10, bottom: 10),
+                    width: 340,
+                    // child: DropdownButtonFormField<Customer>(
+                    //   menuMaxHeight: 300,
+                    //   value: _selectedCustomer,
+                    //   decoration: InputDecoration(
+                    //     labelText: 'Hợp đồng',
+                    //     border: OutlineInputBorder(),
+                    //   ),
+                    //   items: _allCustomers.map((customer) {
+                    //     return DropdownMenuItem<Customer>(
+                    //       value: customer,
+                    //       child: Text(customer.businessPartnerName ?? ''),
+                    //     );
+                    //   }).toList(),
+                    //   onChanged: (customer) {
+                    //     setState(() {
+                    //       _selectedCustomer = customer;
+                    //     });
+                    //   },
+                    //   // style: TextStyle(fontSize: 30, color: Colors.black),
+                    //   // dropdownColor: Colors.white,
+
+                    //   hint: Text(_selectedCustomer?.businessPartnerName ??
+                    //       'Chọn mã hợp đồng'),
+                    // ),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  Container(
+                    width: 340,
+                    child: TextField(
+                      onChanged: _handleTextFieldChanged,
+                      decoration: InputDecoration(
+                          hintText: 'Hợp đồng', border: UnderlineInputBorder()),
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  Container(
+                    width: 340,
+                    child: TextField(
+                      onSubmitted: _handleTextFieldChanged,
+                      controller: _itemController,
+                      decoration: InputDecoration(
+                          hintText: 'Item', border: UnderlineInputBorder()),
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 150,
+                    child: TextField(
+                      onChanged: _handleCbTextFieldChanged,
+                      enabled: _isChecked,
+                      decoration:
+                          InputDecoration(border: UnderlineInputBorder()),
+                    ),
+                  ),
+                  Container(
+                    margin: EdgeInsets.only(top: 10),
+                    child: Row(
+                      children: [
+                        Checkbox(
+                          value: _isChecked,
+                          onChanged: (bool? value) {
+                            setState(() {
+                              _isChecked = value!;
+                            });
+                          },
+                        ),
+                        Text('KM',
+                            style: TextStyle(
+                              fontSize: 10,
+                            )),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    margin: EdgeInsets.only(top: 10, bottom: 10, left: 10),
+                    width: 110,
+                    // child: DropdownButtonFormField<Customer>(
+                    //   menuMaxHeight: 300,
+                    //   value: _selectedCustomer,
+                    //   decoration: InputDecoration(
+                    //     labelText: 'CTKM',
+                    //     border: OutlineInputBorder(),
+                    //   ),
+                    //   items: _allCustomers.map((customer) {
+                    //     return DropdownMenuItem<Customer>(
+                    //       value: customer,
+                    //       child: Text(customer.businessPartnerName ?? ''),
+                    //     );
+                    //   }).toList(),
+                    //   onChanged: (customer) {
+                    //     setState(() {
+                    //       _selectedCustomer = customer;
+                    //     });
+                    //   },
+                    //   // style: TextStyle(fontSize: 30, color: Colors.black),
+                    //   // dropdownColor: Colors.white,
+                    //   isExpanded: true,
+                    //   hint: Text(
+                    //       _selectedCustomer?.businessPartnerName ?? 'Chọn CTKM'),
+                    // ),
+                  ),
+                ],
+              ),
+              Container(
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Số lượng',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          'Giá gốc',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          'CK',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          'Đơn giá',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          'Thành tiền',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    // SingleChildScrollView(
+                    //   scrollDirection: Axis.vertical,
+                    //   child: LimitedBox(
+                    //     maxHeight: 100, // giới hạn chiều rộng của Container
+                    //     child: ListView.builder(
+                    //       itemCount: selectedProducts.length,
+                    //       itemBuilder: (BuildContext context, int index) {
+                    //         return GestureDetector(
+                    //           onTap: () {
+                    //             selectProduct(index);
+                    //           },
+                    //           child: Container(
+                    //             decoration: BoxDecoration(
+                    //               color: selectedProductIndex == index
+                    //                   ? Color.fromARGB(255, 108, 177, 94)
+                    //                   : Colors.transparent,
+                    //             ),
+                    //             child: Text(selectedProducts[index]),
+                    //           ),
+                    //         );
+                    //       },
+                    //     ),
+                    //   ),
+                    // ),
+                    // SingleChildScrollView(
+                    //   scrollDirection: Axis.vertical,
+                    //   child: LimitedBox(
+                    //     maxHeight: 100, // giới hạn chiều rộng của Container
+                    //     child: ListView.builder(
+                    //       itemCount: selectedProducts.length,
+                    //       itemBuilder: (BuildContext context, int index) {
+                    //         return GestureDetector(
+                    //           onTap: () {
+                    //             selectProduct(index);
+                    //           },
+                    //           child: Container(
+                    //             decoration: BoxDecoration(
+                    //               color: selectedProductIndex == index
+                    //                   ? Color.fromARGB(255, 108, 177, 94)
+                    //                   : Colors.transparent,
+                    //             ),
+                    //             child: Text(selectedProducts[index]),
+                    //           ),
+                    //         );
+                    //       },
+                    //     ),
+                    //   ),
+                    // ),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: 100,
+                        maxWidth: 350,
+                        // giới hạn chiều rộng của Container
+                      ),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.vertical,
+                        child: Container(
+                            // color: Colors.blue,
+                            width: 350,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment
+                                  .center, // căn giữa theo chiều dọc
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Column(
+                                  children:
+                                      textList.asMap().entries.map((entry) {
+                                    final index = entry.key;
+                                    final text = entry.value;
+                                    return ListTile(
+                                      title: Text(text),
+                                      // trailing: selectedIndex == index
+                                      //     ? Icon(Icons.check)
+                                      //     : null,
+                                      selected: selectedIndex == index,
+                                      onTap: () {
+                                        setState(() {
+                                          if (selectedIndex == index) {
+                                            selectedIndex = null;
+                                          } else {
+                                            selectedIndex = index;
+                                          }
+                                        });
+                                      },
+                                    );
+                                  }).toList(),
+                                ),
+                              ],
+                            )),
+                      ),
+                    ),
+
+                    Container(
+                      child: Row(
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          children: [
+                            Padding(padding: EdgeInsets.only(left: 10)),
+                            Container(
+                              child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.start,
+                                  children: [
+                                    Padding(padding: EdgeInsets.only(left: 10)),
+                                    // OutlinedButton(
+                                    //   onPressed: () {
+                                    //     // Trích xuất giá trị từ _searchController.text và chia thành các mã đối tượng khác nhau
+                                    //     List<String> selected =
+                                    //         _searchController.text.split(',');
+                                    //     final newText = _searchController.text;
+                                    //     // Thêm các giá trị được chọn vào danh sách
+                                    //     if (newText != selectedText &&
+                                    //         !textList.contains(newText)) {
+                                    //       for (var item in selected) {
+                                    //         selectedProducts.add(item.trim());
+                                    //       }
+                                    //       // Hiển thị lại danh sách
+
+                                    //       setState(() {});
+                                    //       selectedText = newText;
+                                    //       // Hiển thị lại toàn bộ danh sách khi thêm sản phẩm xong
+                                    //       _selectedCustomer = null;
+                                    //       currentSearchText = '';
+                                    //       filteredData = data;
+                                    //       _isDoneSelected = false;
+                                    //     }
+                                    //   },
+                                    //   child: Text('Thêm',
+                                    //       style:
+                                    //           TextStyle(color: Colors.black)),
+                                    //   style: OutlinedButton.styleFrom(
+                                    //     backgroundColor: Colors.grey,
+                                    //   ),
+                                    // ),
+                                    // OutlinedButton(
+                                    //   onPressed: () {
+                                    //     _addTextToList();
+                                    //     setState(() {
+                                    //       List<String> selected =
+                                    //           _searchController.text.split(',');
+                                    //       final newText =
+                                    //           _searchController.text;
+                                    //       // Thêm giá trị mới vào danh sách
+                                    //       if (newText != selectedText &&
+                                    //           !textList.contains(newText)) {
+                                    //         selectedProducts.add(newText);
+                                    //         setState(() {});
+                                    //         selectedText = newText;
+                                    //         // Reset trạng thái các biến khác
+                                    //         _selectedCustomer = null;
+                                    //         currentSearchText = '';
+                                    //         filteredData = data;
+                                    //         _isDoneSelected = false;
+                                    //       }
+                                    //     });
+                                    //   },
+                                    //   child: Text('Thêm',
+                                    //       style:
+                                    //           TextStyle(color: Colors.black)),
+                                    //   style: OutlinedButton.styleFrom(
+                                    //     backgroundColor: Colors.grey,
+                                    //   ),
+                                    // ),
+                                    OutlinedButton(
+                                        onPressed: () {
+                                          _addTextToList();
+                                          setState(() {
+                                            // Trích xuất giá trị từ _searchController.text và chia thành các mã đối tượng khác nhau
+                                            List<String> selected =
+                                                _searchController.text
+                                                    .split(',');
+                                            final newText =
+                                                _searchController.text;
+                                            if (newText != selectedText &&
+                                                !textList.contains(newText)) {
+                                              // Thêm giá trị mới vào danh sách và cập nhật selectedText
+                                              textList.add(newText);
+
+                                              setState(() {});
+                                              selectedText = newText;
+                                              _selectedCustomer = null;
+                                              // _searchController.text = '';
+                                              // currentSearchText = '';
+                                              filteredData = data;
+                                              _isDoneSelected = false;
+                                            }
+                                          });
+                                        },
+                                        child: Text('Thêm',
+                                            style:
+                                                TextStyle(color: Colors.black)),
+                                        style: OutlinedButton.styleFrom(
+                                          backgroundColor: Colors.grey,
+                                        )),
+                                    Padding(padding: EdgeInsets.only(left: 10)),
+                                    GestureDetector(
+                                      onTap: () {
+                                        if (textList != null) {
+                                          showDialog(
+                                            context: context,
+                                            builder: (BuildContext context) {
+                                              return AlertDialog(
+                                                title: Text('Xác nhận xóa'),
+                                                content: Text(
+                                                    'Bạn có chắc chắn muốn xóa sản phẩm này không?'),
+                                                actions: <Widget>[
+                                                  OutlinedButton(
+                                                    child: Text('Hủy'),
+                                                    onPressed: () {
+                                                      Navigator.of(context)
+                                                          .pop();
+                                                    },
+                                                  ),
+                                                  OutlinedButton(
+                                                    child: Text('Xóa'),
+                                                    onPressed: () {
+                                                      setState(() {
+                                                        textList.removeAt(
+                                                            selectedIndex!);
+                                                        selectedIndex = null;
+                                                      });
+                                                      Navigator.of(context)
+                                                          .pop();
+                                                    },
+                                                  ),
+                                                ],
+                                              );
+                                            },
+                                          );
+                                        }
+                                      },
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: selectedIndex != null
+                                              ? Colors.red
+                                              : Colors.grey,
+                                          borderRadius:
+                                              BorderRadius.circular(5.0),
+                                        ),
+                                        child: Padding(
+                                          padding: EdgeInsets.symmetric(
+                                              horizontal: 16.0, vertical: 8.0),
+                                          child: Text(
+                                            'Xoá',
+                                            style: TextStyle(
+                                                color: selectedIndex != null
+                                                    ? Colors.white
+                                                    : Colors.black,
+                                                fontSize: 16),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Padding(padding: EdgeInsets.only(left: 10)),
+                                    OutlinedButton(
+                                        onPressed: () {},
+                                        child: Text('Lưu',
+                                            style:
+                                                TextStyle(color: Colors.black)),
+                                        style: OutlinedButton.styleFrom(
+                                          backgroundColor: Colors.grey,
+                                        )),
+                                    Padding(padding: EdgeInsets.only(left: 10)),
+                                    OutlinedButton(
+                                        onPressed: () {},
+                                        child: Text('Tính KM',
+                                            style:
+                                                TextStyle(color: Colors.white)),
+                                        style: OutlinedButton.styleFrom(
+                                          backgroundColor: Colors.orange,
+                                        ))
+                                  ]),
+                            )
+                          ]),
+                    ),
+                    Container(
+                      padding: EdgeInsets.all(15),
+                      height: 100,
+                      color: Color.fromARGB(255, 214, 212, 212),
+                      child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Tiền hàng'),
+                                Text('Thuế'),
+                                Text('Tổng cộng'),
+                              ],
+                            ),
+                            Column(
+                              children: [
+                                Container(
+                                  // padding: EdgeInsets.all(10),
+                                  height: 70,
+                                  width: 200,
+                                  color: Colors.white,
+                                  child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          'Tiền hàng',
+                                          style:
+                                              TextStyle(color: Colors.black38),
+                                        ),
+                                        Text(
+                                          'Thuế',
+                                          style:
+                                              TextStyle(color: Colors.black38),
+                                        ),
+                                        Text(
+                                          'Tổng cộng',
+                                          style:
+                                              TextStyle(color: Colors.black38),
+                                        )
+                                      ]),
+                                )
+                              ],
+                            ),
+                          ]),
+                    )
+                  ],
+                ),
+              )
+            ]))));
+  }
+}
